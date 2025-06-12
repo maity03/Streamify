@@ -1,3 +1,4 @@
+// src/pages/ChatPage.jsx
 import { useEffect, useState } from "react";
 import { useParams } from "react-router";
 import useAuthUser from "../hooks/useAuthUser";
@@ -26,23 +27,31 @@ const ChatPage = () => {
 
   const [chatClient, setChatClient] = useState(null);
   const [channel, setChannel] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [chatReady, setChatReady] = useState(false);
 
-  const { authUser } = useAuthUser();
+  const { authUser, isLoading: authLoading } = useAuthUser(); // use loading state
 
-  const { data: tokenData } = useQuery({
+  const {
+    data: tokenData,
+    isLoading: tokenLoading,
+    refetch: refetchToken,
+  } = useQuery({
     queryKey: ["streamToken"],
     queryFn: getStreamToken,
-    enabled: !!authUser, // this will run only when authUser is available
+    enabled: false, // disable automatic fetching
   });
 
   useEffect(() => {
+    if (authUser && !tokenData && !tokenLoading) {
+      refetchToken(); // fetch manually once authUser is ready
+    }
+  }, [authUser, tokenData, tokenLoading, refetchToken]);
+
+  useEffect(() => {
     const initChat = async () => {
-      if (!tokenData?.token || !authUser) return;
+      if (!authUser || !tokenData?.token) return;
 
       try {
-        console.log("Initializing stream chat client...");
-
         const client = StreamChat.getInstance(STREAM_API_KEY);
 
         await client.connectUser(
@@ -54,13 +63,7 @@ const ChatPage = () => {
           tokenData.token
         );
 
-        //
         const channelId = [authUser._id, targetUserId].sort().join("-");
-
-        // you and me
-        // if i start the chat => channelId: [myId, yourId]
-        // if you start the chat => channelId: [yourId, myId]  => [myId,yourId]
-
         const currChannel = client.channel("messaging", channelId, {
           members: [authUser._id, targetUserId],
         });
@@ -69,11 +72,10 @@ const ChatPage = () => {
 
         setChatClient(client);
         setChannel(currChannel);
+        setChatReady(true);
       } catch (error) {
         console.error("Error initializing chat:", error);
         toast.error("Could not connect to chat. Please try again.");
-      } finally {
-        setLoading(false);
       }
     };
 
@@ -83,16 +85,15 @@ const ChatPage = () => {
   const handleVideoCall = () => {
     if (channel) {
       const callUrl = `${window.location.origin}/call/${channel.id}`;
-
       channel.sendMessage({
         text: `I've started a video call. Join me here: ${callUrl}`,
       });
-
       toast.success("Video call link sent successfully!");
     }
   };
 
-  if (loading || !chatClient || !channel) return <ChatLoader />;
+  if (authLoading || tokenLoading || !chatReady || !chatClient || !channel)
+    return <ChatLoader />;
 
   return (
     <div className="h-[93vh]">
@@ -112,4 +113,5 @@ const ChatPage = () => {
     </div>
   );
 };
+
 export default ChatPage;
